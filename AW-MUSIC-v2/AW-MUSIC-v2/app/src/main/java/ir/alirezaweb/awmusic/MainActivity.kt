@@ -15,7 +15,6 @@ import android.os.Looper
 import android.provider.MediaStore
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.widget.*
 import android.text.Editable
 import android.text.TextWatcher
@@ -80,6 +79,7 @@ class MainActivity : Activity() {
 
         val prefs = getSharedPreferences("aw_music", MODE_PRIVATE)
         english = prefs.getBoolean("english", false)
+
         favorites.addAll(
             prefs.getStringSet("favorites", emptySet())?.mapNotNull {
                 it.toLongOrNull()
@@ -99,11 +99,13 @@ class MainActivity : Activity() {
         }
 
         val scroll = ScrollView(this)
+
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
 
         scroll.addView(content)
+
         root.addView(
             scroll,
             LinearLayout.LayoutParams(-1, 0, 1f)
@@ -138,17 +140,22 @@ class MainActivity : Activity() {
         header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
 
         val language = button(if (english) "FA" else "EN")
+
         language.setOnClickListener {
             english = !english
+
             getSharedPreferences("aw_music", MODE_PRIVATE)
-                .edit().putBoolean("english", english).apply()
+                .edit()
+                .putBoolean("english", english)
+                .apply()
+
             buildUi()
         }
-        header.addView(language)
 
+        header.addView(language)
         content.addView(header)
 
-        val animator = ValueAnimator.ofArgb(
+        ValueAnimator.ofArgb(
             cyan,
             purple,
             Color.rgb(255, 50, 160),
@@ -156,9 +163,11 @@ class MainActivity : Activity() {
         ).apply {
             duration = 3500
             repeatCount = ValueAnimator.INFINITE
+
             addUpdateListener {
                 logo.setTextColor(it.animatedValue as Int)
             }
+
             start()
         }
 
@@ -169,7 +178,7 @@ class MainActivity : Activity() {
             setHintTextColor(muted)
             setTextColor(white)
             textSize = 14f
-            singleLine = true
+            isSingleLine = true
             setPadding(dp(15), dp(12), dp(15), dp(12))
             background = rounded(panel, 14)
         }
@@ -192,10 +201,12 @@ class MainActivity : Activity() {
         tabNames.forEach { item ->
             val b = button(item.second)
             b.textSize = 11f
+
             b.setOnClickListener {
                 currentTab = item.first
                 render()
             }
+
             tabs.addView(
                 b,
                 LinearLayout.LayoutParams(0, dp(43), 1f)
@@ -252,8 +263,10 @@ class MainActivity : Activity() {
 
         progress = SeekBar(this).apply {
             max = 100
-            progressTintList = android.content.res.ColorStateList.valueOf(cyan)
-            thumbTintList = android.content.res.ColorStateList.valueOf(purple)
+            progressTintList =
+                android.content.res.ColorStateList.valueOf(cyan)
+            thumbTintList =
+                android.content.res.ColorStateList.valueOf(purple)
         }
 
         elapsed = label("0:00", 11f, muted)
@@ -262,7 +275,9 @@ class MainActivity : Activity() {
         progress.setOnSeekBarChangeListener(
             object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(
-                    seekBar: SeekBar?, value: Int, fromUser: Boolean
+                    seekBar: SeekBar?,
+                    value: Int,
+                    fromUser: Boolean
                 ) {
                     if (fromUser) {
                         try {
@@ -281,18 +296,20 @@ class MainActivity : Activity() {
         }
 
         timeRow.addView(elapsed)
+
         timeRow.addView(
             View(this),
             LinearLayout.LayoutParams(0, 1, 1f)
         )
+
         timeRow.addView(total)
 
         mini.addView(progress)
         mini.addView(timeRow)
 
         root.addView(mini)
-        setContentView(root)
 
+        setContentView(root)
         render()
     }
 
@@ -303,7 +320,8 @@ class MainActivity : Activity() {
             Manifest.permission.READ_EXTERNAL_STORAGE
         }
 
-        if (Build.VERSION.SDK_INT >= 23 &&
+        if (
+            Build.VERSION.SDK_INT >= 23 &&
             checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
         ) {
             requestPermissions(arrayOf(permission), 100)
@@ -318,10 +336,13 @@ class MainActivity : Activity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(
-            requestCode, permissions, grantResults
+            requestCode,
+            permissions,
+            grantResults
         )
 
-        if (requestCode == 100 &&
+        if (
+            requestCode == 100 &&
             grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
@@ -360,12 +381,15 @@ class MainActivity : Activity() {
                 val idCol = cursor.getColumnIndexOrThrow(
                     MediaStore.Audio.Media._ID
                 )
+
                 val titleCol = cursor.getColumnIndexOrThrow(
                     MediaStore.Audio.Media.TITLE
                 )
+
                 val artistCol = cursor.getColumnIndexOrThrow(
                     MediaStore.Audio.Media.ARTIST
                 )
+
                 val durationCol = cursor.getColumnIndexOrThrow(
                     MediaStore.Audio.Media.DURATION
                 )
@@ -396,6 +420,7 @@ class MainActivity : Activity() {
         if (!::content.isInitialized) return
 
         val startIndex = 3
+
         while (content.childCount > startIndex) {
             content.removeViewAt(startIndex)
         }
@@ -408,10 +433,14 @@ class MainActivity : Activity() {
         val query = search.text.toString().lowercase()
 
         val filtered = when (currentTab) {
-            "favorites" -> tracks.filter { favorites.contains(it.id) }
+            "favorites" -> tracks.filter {
+                favorites.contains(it.id)
+            }
+
             "recent" -> recent.mapNotNull { id ->
                 tracks.find { it.id == id }
             }
+
             else -> tracks
         }.filter {
             it.title.lowercase().contains(query) ||
@@ -419,9 +448,14 @@ class MainActivity : Activity() {
         }
 
         val heading = when (currentTab) {
-            "favorites" -> if (english) "Favorites" else "علاقه‌مندی‌ها"
-            "recent" -> if (english) "Recently Played" else "پخش‌های اخیر"
-            else -> if (english) "All Music" else "تمام آهنگ‌ها"
+            "favorites" ->
+                if (english) "Favorites" else "علاقه‌مندی‌ها"
+
+            "recent" ->
+                if (english) "Recently Played" else "پخش‌های اخیر"
+
+            else ->
+                if (english) "All Music" else "تمام آهنگ‌ها"
         }
 
         content.addView(label(heading, 20f, cyan, true))
@@ -452,7 +486,6 @@ class MainActivity : Activity() {
 
             info.addView(label(track.title, 14f, white, true))
             info.addView(label(track.artist, 11f, muted))
-
             info.setOnClickListener { play(track) }
 
             row.addView(
@@ -616,7 +649,7 @@ class MainActivity : Activity() {
         val nextIndex = if (currentIndex < 0) {
             0
         } else if (shuffle) {
-            (tracks.indices).random()
+            tracks.indices.random()
         } else {
             (currentIndex + direction + tracks.size) % tracks.size
         }
@@ -644,6 +677,7 @@ class MainActivity : Activity() {
 
     private fun format(milliseconds: Long): String {
         val seconds = (milliseconds / 1000).toInt()
+
         return String.format(
             "%d:%02d",
             seconds / 60,
@@ -661,7 +695,10 @@ class MainActivity : Activity() {
             text = textValue
             textSize = size
             setTextColor(color)
-            if (bold) typeface = Typeface.DEFAULT_BOLD
+
+            if (bold) {
+                typeface = Typeface.DEFAULT_BOLD
+            }
         }
     }
 
@@ -675,7 +712,10 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun rounded(color: Int, radius: Int): GradientDrawable {
+    private fun rounded(
+        color: Int,
+        radius: Int
+    ): GradientDrawable {
         return GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(radius).toFloat()
@@ -692,11 +732,17 @@ class MainActivity : Activity() {
     }
 
     private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
+        return (
+            value * resources.displayMetrics.density
+        ).toInt()
     }
 
     private fun toast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        Toast.makeText(
+            this,
+            message,
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     override fun onDestroy() {
