@@ -14,15 +14,11 @@ jobs:
     name: Build AW MUSIC APK
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: AW-MUSIC-project
-
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,13 +26,28 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-      - name: Build Debug APK
-        run: gradle assembleDebug
+      - name: Find Project
+        id: project
+        shell: bash
+        run: |
+          FILE=$(find . -name settings.gradle.kts -type f -print -quit)
+          if [ -z "$FILE" ]; then
+            echo "Gradle project not found!"
+            exit 1
+          fi
+          DIR=$(dirname "$FILE")
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          echo "Project found: $DIR"
+
+      - name: Build APK
+        run: gradle -p "${{ steps.project.outputs.dir }}" assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: AW-MUSIC-APK
-          path: AW-MUSIC-project/app/build/outputs/apk/debug/*.apk
+          path: '**/app/build/outputs/apk/debug/*.apk'
           if-no-files-found: error
