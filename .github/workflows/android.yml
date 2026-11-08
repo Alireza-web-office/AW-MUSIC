@@ -23,24 +23,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Download Gradle 8.9
+      - name: Download Gradle
         run: |
           curl -fL --retry 5 --retry-all-errors \
-            --retry-delay 10 \
             https://downloads.gradle.org/distributions/gradle-8.9-bin.zip \
-            -o "$RUNNER_TEMP/gradle.zip"
-          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+            -o gradle.zip
+          unzip -q gradle.zip -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/gradle-8.9/bin" >> "$GITHUB_PATH"
 
-      - name: Check Gradle
-        run: gradle --version
+      - name: Find Project
+        run: |
+          FILE=$(find . -type f -name settings.gradle.kts -print -quit)
+
+          if [ -z "$FILE" ]; then
+            echo "Gradle project not found"
+            exit 1
+          fi
+
+          DIR=$(dirname "$FILE")
+          echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
+          echo "Found project at: $DIR"
 
       - name: Build APK
-        run: gradle -p AW-MUSIC-project assembleDebug
+        run: gradle -p "$PROJECT_DIR" assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: AW-MUSIC-APK
-          path: AW-MUSIC-project/app/build/outputs/apk/debug/*.apk
+          path: '**/app/build/outputs/apk/debug/*.apk'
           if-no-files-found: error
