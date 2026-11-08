@@ -2,7 +2,6 @@ package ir.alirezaweb.awmusic
 
 import android.Manifest
 import android.app.Activity
-import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
@@ -11,368 +10,697 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.view.Gravity
-import android.view.inputmethod.EditorInfo
+import android.view.View
+import android.view.ViewGroup
 import android.widget.*
-import java.util.Locale
+import android.text.Editable
+import android.text.TextWatcher
+import android.animation.ValueAnimator
 
-private data class Track(val id: Long, val title: String, val artist: String, val duration: Long, val uri: Uri)
+data class Track(
+    val id: Long,
+    val title: String,
+    val artist: String,
+    val duration: Long,
+    val uri: Uri
+)
 
 class MainActivity : Activity() {
+
+    private val bg = Color.rgb(9, 9, 16)
+    private val panel = Color.rgb(22, 22, 35)
+    private val cyan = Color.rgb(0, 220, 255)
+    private val purple = Color.rgb(170, 70, 255)
+    private val white = Color.WHITE
+    private val muted = Color.LTGRAY
+
     private val tracks = mutableListOf<Track>()
-    private var shown = listOf<Track>()
+    private val favorites = mutableSetOf<Long>()
+    private val recent = mutableListOf<Long>()
+
     private var player: MediaPlayer? = null
-    private var currentId = -1L
-    private var tab = "all"
+    private var currentTrack: Track? = null
+    private var currentTab = "all"
     private var english = false
     private var shuffle = false
     private var repeat = false
-    private val favorites = mutableSetOf<Long>()
-    private val recent = mutableListOf<Long>()
-    private lateinit var list: LinearLayout
+    private var isPlaying = false
+
+    private lateinit var root: LinearLayout
+    private lateinit var content: LinearLayout
     private lateinit var search: EditText
-    private lateinit var count: TextView
-    private lateinit var nowTitle: TextView
-    private lateinit var nowArtist: TextView
-    private lateinit var playButton: TextView
-    private lateinit var seek: SeekBar
+    private lateinit var miniTitle: TextView
+    private lateinit var playButton: Button
+    private lateinit var progress: SeekBar
     private lateinit var elapsed: TextView
     private lateinit var total: TextView
 
-    private val bg = Color.rgb(7, 11, 19)
-    private val panel = Color.rgb(17, 24, 39)
-    private val cyan = Color.rgb(0, 217, 255)
-    private val purple = Color.rgb(164, 92, 255)
-    private val white = Color.rgb(240, 245, 255)
-    private val muted = Color.rgb(155, 169, 190)
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val progressRunnable = object : Runnable {
+        override fun run() {
+            val p = player
+            if (p != null && isPlaying) {
+                try {
+                    progress.progress = p.currentPosition
+                    elapsed.text = format(p.currentPosition.toLong())
+                } catch (_: Exception) {
+                }
+            }
+            handler.postDelayed(this, 500)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         val prefs = getSharedPreferences("aw_music", MODE_PRIVATE)
-        favorites.addAll(prefs.getStringSet("favorites", emptySet())!!.mapNotNull { it.toLongOrNull() })
-        recent.addAll(prefs.getString("recent", "")!!.split(",").mapNotNull { it.toLongOrNull() })
         english = prefs.getBoolean("english", false)
+        favorites.addAll(
+            prefs.getStringSet("favorites", emptySet())?.mapNotNull {
+                it.toLongOrNull()
+            } ?: emptyList()
+        )
+
         buildUi()
         askPermission()
+        handler.post(progressRunnable)
     }
-
-    private fun tr(fa: String, en: String) = if (english) en else fa
-    private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
-    private fun rounded(color: Int, stroke: Int = Color.TRANSPARENT): GradientDrawable =
-        GradientDrawable().apply { setColor(color); cornerRadius = dp(16).toFloat(); if (stroke != Color.TRANSPARENT) setStroke(dp(1), stroke) }
-
-    private fun text(value: String, size: Float, color: Int, bold: Boolean = false): TextView =
-        TextView(this).apply {
-            text = value; textSize = size; setTextColor(color)
-            if (bold) typeface = Typeface.create("sans-serif", Typeface.BOLD)
-        }
-
-    private fun button(value: String, action: () -> Unit): TextView =
-        TextView(this).apply {
-            text = value; textSize = 14f; gravity = Gravity.CENTER; setTextColor(cyan)
-            setPadding(dp(12), dp(9), dp(12), dp(9))
-            background = rounded(Color.rgb(22, 34, 51), Color.rgb(42, 66, 91))
-            setOnClickListener { action() }
-        }
 
     private fun buildUi() {
-        val root = LinearLayout(this).apply {
+        root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(10))
             setBackgroundColor(bg)
+            setPadding(dp(16), dp(16), dp(16), dp(12))
         }
 
-        val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        val scroll = ScrollView(this)
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        scroll.addView(content)
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(-1, 0, 1f)
+        )
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = rounded(panel, 18)
+        }
+
+        val logo = TextView(this).apply {
+            text = "AW"
+            textSize = 27f
+            setTextColor(cyan)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = rounded(Color.BLACK, 14)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+
         val brand = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+            setPadding(dp(12), 0, 0, 0)
         }
-        brand.addView(text("AW MUSIC", 28f, cyan, true).apply { letterSpacing = .12f })
-        brand.addView(text("ALIREZA WEB  •  OFFLINE PLAYER", 10f, muted))
-        header.addView(brand)
-        header.addView(button(if (english) "FA" else "EN") {
+
+        brand.addView(label("AW MUSIC", 20f, white, true))
+        brand.addView(label("ALIREZA WEB", 11f, muted))
+
+        header.addView(logo)
+        header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
+
+        val language = button(if (english) "FA" else "EN")
+        language.setOnClickListener {
             english = !english
-            getSharedPreferences("aw_music", MODE_PRIVATE).edit().putBoolean("english", english).apply()
+            getSharedPreferences("aw_music", MODE_PRIVATE)
+                .edit().putBoolean("english", english).apply()
             buildUi()
-            render()
-        })
-        root.addView(header)
-        root.addView(space(14))
+        }
+        header.addView(language)
+
+        content.addView(header)
+
+        val animator = ValueAnimator.ofArgb(
+            cyan,
+            purple,
+            Color.rgb(255, 50, 160),
+            cyan
+        ).apply {
+            duration = 3500
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener {
+                logo.setTextColor(it.animatedValue as Int)
+            }
+            start()
+        }
+
+        content.addView(space(18))
 
         search = EditText(this).apply {
-            hint = tr("جست‌وجوی آهنگ یا خواننده", "Search songs or artists")
-            setTextColor(white); setHintTextColor(muted); textSize = 14f
-            maxLines = 1; imeOptions = EditorInfo.IME_ACTION_SEARCH
-            setPadding(dp(14), 0, dp(14), 0)
-            background = rounded(panel, Color.rgb(42, 66, 91))
+            hint = if (english) "Search music..." else "جستجوی آهنگ..."
+            setHintTextColor(muted)
+            setTextColor(white)
+            textSize = 14f
+            singleLine = true
+            setPadding(dp(15), dp(12), dp(15), dp(12))
+            background = rounded(panel, 14)
         }
-        root.addView(search, LinearLayout.LayoutParams(-1, dp(48)))
-        root.addView(space(12))
 
-        val nav = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        nav.addView(navButton("all", tr("全部", "All")))
-        nav.addView(navButton("favorites", tr("收藏", "Favorites")))
-        nav.addView(navButton("recent", tr("最近", "Recent")))
-        nav.addView(navButton("about", tr("درباره من", "About me")))
-        root.addView(nav)
-        root.addView(space(10))
+        content.addView(search)
+        content.addView(space(15))
 
-        count = text(tr("در حال آماده‌سازی...", "Preparing library..."), 12f, muted)
-        root.addView(count)
-        val scroll = ScrollView(this)
-        list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroll.addView(list)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
 
-        val playerBox = LinearLayout(this).apply {
+        val tabNames = listOf(
+            "all" to if (english) "All" else "همه آهنگ‌ها",
+            "favorites" to if (english) "Favorites" else "علاقه‌مندی",
+            "recent" to if (english) "Recent" else "اخیر",
+            "about" to if (english) "About" else "درباره من"
+        )
+
+        tabNames.forEach { item ->
+            val b = button(item.second)
+            b.textSize = 11f
+            b.setOnClickListener {
+                currentTab = item.first
+                render()
+            }
+            tabs.addView(
+                b,
+                LinearLayout.LayoutParams(0, dp(43), 1f)
+            )
+        }
+
+        content.addView(tabs)
+        content.addView(space(18))
+
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(
+                s: CharSequence?, start: Int, count: Int, after: Int
+            ) {}
+
+            override fun onTextChanged(
+                s: CharSequence?, start: Int, before: Int, count: Int
+            ) {
+                render()
+            }
+
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        val mini = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(13), dp(11), dp(13), dp(9))
-            background = rounded(panel, Color.rgb(47, 65, 91))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(panel, 16)
         }
-        val now = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        now.addView(TextView(this).apply {
-            text = "♫"; textSize = 26f; gravity = Gravity.CENTER; setTextColor(cyan)
-            background = rounded(bg, purple)
-        }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        val names = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), 0, 0, 0)
-            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+
+        miniTitle = label(
+            if (english) "No music playing" else "آهنگی در حال پخش نیست",
+            13f,
+            white
+        )
+
+        val controls = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
         }
-        nowTitle = text(tr("هنوز آهنگی انتخاب نشده", "No song selected"), 14f, white, true)
-        nowArtist = text(tr("یک آهنگ از فهرست انتخاب کن", "Choose a song from your library"), 11f, muted)
-        names.addView(nowTitle); names.addView(nowArtist)
-        now.addView(names)
-        playerBox.addView(now)
-        seek = SeekBar(this).apply {
-            progressTintList = android.content.res.ColorStateList.valueOf(cyan)
-            thumbTintList = android.content.res.ColorStateList.valueOf(cyan)
-            max = 1000
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(s: SeekBar?, p: Int, user: Boolean) {
-                    if (user) player?.let { if (it.duration > 0) it.seekTo((it.duration * p / 1000)) }
-                }
-                override fun onStartTrackingTouch(s: SeekBar?) {}
-                override fun onStopTrackingTouch(s: SeekBar?) {}
-            })
-        }
-        playerBox.addView(seek)
-        val times = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        elapsed = text("0:00", 10f, muted)
-        total = text("0:00", 10f, muted)
-        times.addView(elapsed, LinearLayout.LayoutParams(0, -2, 1f))
-        times.addView(total)
-        playerBox.addView(times)
-        val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) }
-        controls.addView(button("⤨") { shuffle = !shuffle; toast(if (shuffle) tr("پخش تصادفی روشن شد", "Shuffle on") else tr("پخش تصادفی خاموش شد", "Shuffle off")) })
-        controls.addView(button("|◀") { step(-1) })
-        playButton = button("▶") { toggle() }
+
+        val previous = button("⏮")
+        playButton = button("▶")
+        val next = button("⏭")
+
+        previous.setOnClickListener { step(-1) }
+        playButton.setOnClickListener { toggle() }
+        next.setOnClickListener { step(1) }
+
+        controls.addView(previous)
         controls.addView(playButton)
-        controls.addView(button("▶|") { step(1) })
-        controls.addView(button("↻") { repeat = !repeat; toast(if (repeat) tr("تکرار روشن شد", "Repeat on") else tr("تکرار خاموش شد", "Repeat off")) })
-        playerBox.addView(controls)
-        root.addView(space(8))
-        root.addView(playerBox)
+        controls.addView(next)
+
+        mini.addView(miniTitle)
+        mini.addView(controls)
+
+        progress = SeekBar(this).apply {
+            max = 100
+            progressTintList = android.content.res.ColorStateList.valueOf(cyan)
+            thumbTintList = android.content.res.ColorStateList.valueOf(purple)
+        }
+
+        elapsed = label("0:00", 11f, muted)
+        total = label("0:00", 11f, muted)
+
+        progress.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(
+                    seekBar: SeekBar?, value: Int, fromUser: Boolean
+                ) {
+                    if (fromUser) {
+                        try {
+                            player?.seekTo(value)
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            }
+        )
+
+        val timeRow = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        timeRow.addView(elapsed)
+        timeRow.addView(
+            View(this),
+            LinearLayout.LayoutParams(0, 1, 1f)
+        )
+        timeRow.addView(total)
+
+        mini.addView(progress)
+        mini.addView(timeRow)
+
+        root.addView(mini)
         setContentView(root)
 
-        search.addTextChangedListenerSimple { render() }
         render()
-    }
-
-    private fun space(h: Int) = android.view.View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(h)) }
-
-    private fun navButton(id: String, label: String) = button(label) {
-        tab = id
-        render()
-    }.apply { layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(4) } }
-
-    private fun EditText.addTextChangedListenerSimple(onChange: () -> Unit) {
-        addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { onChange() }
-            override fun afterTextChanged(s: android.text.Editable?) {}
-        })
     }
 
     private fun askPermission() {
-        val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
-        else Manifest.permission.READ_EXTERNAL_STORAGE
-        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(permission), 42)
-        } else loadTracks()
+        val permission = if (Build.VERSION.SDK_INT >= 33) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+        if (Build.VERSION.SDK_INT >= 23 &&
+            checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(permission), 100)
+        } else {
+            loadTracks()
+        }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, results)
-        if (requestCode == 42 && results.isNotEmpty() && results[0] == PackageManager.PERMISSION_GRANTED) loadTracks()
-        else toast(tr("برای نمایش آهنگ‌ها اجازه دسترسی لازم است.", "Audio permission is required to show songs."))
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(
+            requestCode, permissions, grantResults
+        )
+
+        if (requestCode == 100 &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            loadTracks()
+        } else {
+            toast(
+                if (english) "Audio permission required"
+                else "برای نمایش آهنگ‌ها باید دسترسی بدهی"
+            )
+        }
     }
 
     private fun loadTracks() {
         tracks.clear()
-        val collection = if (Build.VERSION.SDK_INT >= 29)
-            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.DURATION)
+
         try {
-            contentResolver.query(collection, columns, "${MediaStore.Audio.Media.IS_MUSIC} != 0",
-                null, "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC")?.use { c ->
-                val id = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                val title = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                val artist = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                val duration = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-                while (c.moveToNext()) {
-                    val key = c.getLong(id)
-                    tracks.add(Track(key, c.getString(title) ?: "Unknown",
-                        c.getString(artist) ?: "Unknown artist", c.getLong(duration),
-                        ContentUris.withAppendedId(collection, key)))
+            val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+
+            val projection = arrayOf(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.DURATION
+            )
+
+            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+
+            contentResolver.query(
+                collection,
+                projection,
+                selection,
+                null,
+                "${MediaStore.Audio.Media.TITLE} ASC"
+            )?.use { cursor ->
+
+                val idCol = cursor.getColumnIndexOrThrow(
+                    MediaStore.Audio.Media._ID
+                )
+                val titleCol = cursor.getColumnIndexOrThrow(
+                    MediaStore.Audio.Media.TITLE
+                )
+                val artistCol = cursor.getColumnIndexOrThrow(
+                    MediaStore.Audio.Media.ARTIST
+                )
+                val durationCol = cursor.getColumnIndexOrThrow(
+                    MediaStore.Audio.Media.DURATION
+                )
+
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+
+                    tracks.add(
+                        Track(
+                            id,
+                            cursor.getString(titleCol) ?: "Unknown",
+                            cursor.getString(artistCol) ?: "Unknown",
+                            cursor.getLong(durationCol),
+                            Uri.withAppendedPath(collection, id.toString())
+                        )
+                    )
                 }
             }
-        } catch (_: Exception) {
-            toast(tr("خواندن فهرست موسیقی ناموفق بود.", "Could not read music library."))
+
+        } catch (e: Exception) {
+            toast("Error: ${e.message}")
         }
+
         render()
     }
 
     private fun render() {
-        if (!::list.isInitialized) return
-        list.removeAllViews()
-        if (tab == "about") {
-            count.text = tr("درباره سازنده", "About the creator")
+        if (!::content.isInitialized) return
+
+        val startIndex = 3
+        while (content.childCount > startIndex) {
+            content.removeViewAt(startIndex)
+        }
+
+        if (currentTab == "about") {
             showAbout()
             return
         }
-        val query = if (::search.isInitialized) search.text.toString().trim().lowercase(Locale.getDefault()) else ""
-        val source = when (tab) {
+
+        val query = search.text.toString().lowercase()
+
+        val filtered = when (currentTab) {
             "favorites" -> tracks.filter { favorites.contains(it.id) }
-            "recent" -> recent.mapNotNull { id -> tracks.find { it.id == id } }
+            "recent" -> recent.mapNotNull { id ->
+                tracks.find { it.id == id }
+            }
             else -> tracks
+        }.filter {
+            it.title.lowercase().contains(query) ||
+            it.artist.lowercase().contains(query)
         }
-        shown = source.filter {
-            it.title.lowercase(Locale.getDefault()).contains(query) ||
-                it.artist.lowercase(Locale.getDefault()).contains(query)
+
+        val heading = when (currentTab) {
+            "favorites" -> if (english) "Favorites" else "علاقه‌مندی‌ها"
+            "recent" -> if (english) "Recently Played" else "پخش‌های اخیر"
+            else -> if (english) "All Music" else "تمام آهنگ‌ها"
         }
-        count.text = tr("آهنگ‌ها  •  ${shown.size}", "TRACKS  •  ${shown.size}")
-        if (shown.isEmpty()) {
-            list.addView(text(
-                if (tracks.isEmpty()) tr("هنوز آهنگی پیدا نشده؛ فایل موسیقی به گوشی اضافه کن.", "No music found. Add audio files to your phone.")
-                else tr("نتیجه‌ای پیدا نشد.", "No results found."),
-                13f, muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(40), 0, dp(40)) })
+
+        content.addView(label(heading, 20f, cyan, true))
+        content.addView(space(12))
+
+        if (filtered.isEmpty()) {
+            content.addView(
+                label(
+                    if (english) "No music found" else "آهنگی پیدا نشد",
+                    14f,
+                    muted
+                )
+            )
             return
         }
-        shown.forEach { track ->
+
+        filtered.forEach { track ->
             val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(12), dp(10), dp(10), dp(10))
-                background = rounded(panel)
-                layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) }
+                setPadding(dp(12), dp(12), dp(8), dp(12))
+                background = rounded(panel, 14)
             }
-            val symbol = text("♫", 22f, cyan, true).apply { gravity = Gravity.CENTER }
-            row.addView(symbol, LinearLayout.LayoutParams(dp(40), dp(42)))
+
             val info = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(9), 0, 0, 0)
-                layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
             }
-            info.addView(text(track.title, 13f, white, true).apply { maxLines = 1 })
-            info.addView(text("${track.artist}  •  ${format(track.duration)}", 10f, muted))
-            row.addView(info)
-            row.addView(button(if (favorites.contains(track.id)) "♥" else "♡") { toggleFavorite(track) })
+
+            info.addView(label(track.title, 14f, white, true))
+            info.addView(label(track.artist, 11f, muted))
+
+            info.setOnClickListener { play(track) }
+
+            row.addView(
+                info,
+                LinearLayout.LayoutParams(0, -2, 1f)
+            )
+
+            val favorite = button(
+                if (favorites.contains(track.id)) "♥" else "♡"
+            )
+
+            favorite.setTextColor(
+                if (favorites.contains(track.id)) purple else white
+            )
+
+            favorite.setOnClickListener {
+                toggleFavorite(track)
+            }
+
+            row.addView(favorite)
             row.setOnClickListener { play(track) }
-            list.addView(row)
+
+            content.addView(row)
+            content.addView(space(7))
         }
     }
 
     private fun showAbout() {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(20), dp(18), dp(20))
-            background = rounded(panel, purple)
-        }
-        box.addView(text("AW", 42f, cyan, true).apply { gravity = Gravity.CENTER; letterSpacing = .18f })
-        box.addView(text("ALIREZA WEB", 18f, white, true).apply { gravity = Gravity.CENTER })
-        box.addView(space(12))
-        box.addView(text(tr("درباره من", "About me"), 17f, cyan, true))
-        box.addView(text(
-            tr("من علیرضا مزارعی هستم؛ سازنده AW MUSIC و بنیان‌گذار ALIREZA WEB. به طراحی وب، فناوری و ساخت ابزارهای کاربردی علاقه دارم.",
-               "I'm Alireza Mazarei, creator of AW MUSIC and founder of ALIREZA WEB. I'm interested in web design, technology, and building useful tools."),
-            13f, white).apply { setPadding(0, dp(8), 0, dp(14)) })
-        box.addView(text(tr("درباره برنامه", "About the app"), 15f, cyan, true))
-        box.addView(text(
-            tr("AW MUSIC یک پخش‌کننده موسیقی آفلاین برای پخش فایل‌های صوتی موجود در دستگاه است.",
-               "AW MUSIC is an offline music player for audio files stored on your device."),
-            12f, muted).apply { setPadding(0, dp(7), 0, dp(14)) })
-        box.addView(text("Version 2.0.0", 11f, muted))
-        box.addView(text("Designed & developed by ALIREZA WEB", 10f, muted))
-        list.addView(box)
-    }
+        content.addView(
+            label(
+                if (english) "About AW MUSIC" else "درباره AW MUSIC",
+                21f,
+                cyan,
+                true
+            )
+        )
 
-    private fun toggleFavorite(track: Track) {
-        if (!favorites.add(track.id)) favorites.remove(track.id)
-        getSharedPreferences("aw_music", MODE_PRIVATE).edit()
-            .putStringSet("favorites", favorites.map { it.toString() }.toSet()).apply()
-        render()
+        content.addView(space(15))
+
+        val about = if (english) {
+            """
+                AW MUSIC
+
+                A music player created by Alireza Mazarei.
+
+                Developer: Alireza Mazarei
+                Brand: ALIREZA WEB
+
+                Interested in web design, technology
+                and software development.
+
+                Designed with passion for music
+                and a neon RGB visual style.
+            """.trimIndent()
+        } else {
+            """
+                AW MUSIC
+
+                یک موزیک‌پلیر با طراحی اختصاصی.
+
+                سازنده: علیرضا مزارعی
+
+                برند: ALIREZA WEB
+
+                علاقه‌مند به طراحی وب، فناوری
+                و توسعه نرم‌افزار.
+
+                ساخته‌شده با تمرکز بر تجربه
+                موسیقی و طراحی نئونی RGB.
+            """.trimIndent()
+        }
+
+        val card = TextView(this).apply {
+            text = about
+            textSize = 15f
+            setTextColor(white)
+            setLineSpacing(dp(7).toFloat(), 1f)
+            setPadding(dp(18), dp(20), dp(18), dp(20))
+            background = rounded(panel, 18)
+        }
+
+        content.addView(card)
     }
 
     private fun play(track: Track) {
         try {
             player?.release()
-            player = MediaPlayer().apply {
-                setDataSource(this@MainActivity, track.uri)
-                setOnCompletionListener {
-                    if (repeat) play(track) else step(1)
-                }
-                prepare()
-                start()
-            }
-            currentId = track.id
-            nowTitle.text = track.title
-            nowArtist.text = track.artist
-            playButton.text = "Ⅱ"
-            recent.remove(track.id)
-            recent.add(0, track.id)
-            if (recent.size > 30) recent.removeAt(recent.lastIndex)
-            getSharedPreferences("aw_music", MODE_PRIVATE).edit()
-                .putString("recent", recent.joinToString(",")).apply()
-            seek.progress = 0
+            player = MediaPlayer()
+
+            currentTrack = track
+            isPlaying = false
+
+            miniTitle.text = "${track.title} - ${track.artist}"
             total.text = format(track.duration)
             elapsed.text = "0:00"
-        } catch (_: Exception) {
-            player?.release(); player = null; playButton.text = "▶"
-            toast(tr("پخش این فایل ممکن نیست.", "This file cannot be played."))
+
+            player?.setDataSource(this, track.uri)
+
+            player?.setOnPreparedListener { mp ->
+                mp.start()
+                isPlaying = true
+                playButton.text = "Ⅱ"
+                progress.max = mp.duration
+            }
+
+            player?.setOnCompletionListener {
+                isPlaying = false
+                playButton.text = "▶"
+
+                if (repeat) {
+                    play(track)
+                } else {
+                    step(1)
+                }
+            }
+
+            player?.prepareAsync()
+
+            recent.remove(track.id)
+            recent.add(0, track.id)
+
+            render()
+
+        } catch (e: Exception) {
+            toast("Playback error")
         }
     }
 
     private fun toggle() {
         val p = player
+
         if (p == null) {
-            tracks.firstOrNull()?.let { play(it) }
-        } else if (p.isPlaying) {
-            p.pause(); playButton.text = "▶"
-        } else {
-            p.start(); playButton.text = "Ⅱ"
+            toast(
+                if (english) "Select a song first"
+                else "ابتدا یک آهنگ انتخاب کن"
+            )
+            return
+        }
+
+        try {
+            if (p.isPlaying) {
+                p.pause()
+                isPlaying = false
+                playButton.text = "▶"
+            } else {
+                p.start()
+                isPlaying = true
+                playButton.text = "Ⅱ"
+            }
+        } catch (_: Exception) {
         }
     }
 
-    private fun step(delta: Int) {
+    private fun step(direction: Int) {
         if (tracks.isEmpty()) return
-        val index = tracks.indexOfFirst { it.id == currentId }
-        val next = if (shuffle && tracks.size > 1) {
-            (tracks.indices - index).random()
-        } else if (index < 0) 0 else (index + delta + tracks.size) % tracks.size
-        play(tracks[next])
+
+        val currentIndex = tracks.indexOfFirst {
+            it.id == currentTrack?.id
+        }
+
+        val nextIndex = if (currentIndex < 0) {
+            0
+        } else if (shuffle) {
+            (tracks.indices).random()
+        } else {
+            (currentIndex + direction + tracks.size) % tracks.size
+        }
+
+        play(tracks[nextIndex])
     }
 
-    private fun format(ms: Long): String {
-        val seconds = ms / 1000
-        return "%d:%02d".format(seconds / 60, seconds % 60)
+    private fun toggleFavorite(track: Track) {
+        if (favorites.contains(track.id)) {
+            favorites.remove(track.id)
+        } else {
+            favorites.add(track.id)
+        }
+
+        getSharedPreferences("aw_music", MODE_PRIVATE)
+            .edit()
+            .putStringSet(
+                "favorites",
+                favorites.map { it.toString() }.toSet()
+            )
+            .apply()
+
+        render()
     }
 
-    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    private fun format(milliseconds: Long): String {
+        val seconds = (milliseconds / 1000).toInt()
+        return String.format(
+            "%d:%02d",
+            seconds / 60,
+            seconds % 60
+        )
+    }
+
+    private fun label(
+        textValue: String,
+        size: Float,
+        color: Int,
+        bold: Boolean = false
+    ): TextView {
+        return TextView(this).apply {
+            text = textValue
+            textSize = size
+            setTextColor(color)
+            if (bold) typeface = Typeface.DEFAULT_BOLD
+        }
+    }
+
+    private fun button(textValue: String): Button {
+        return Button(this).apply {
+            text = textValue
+            textSize = 12f
+            setTextColor(cyan)
+            isAllCaps = false
+            background = rounded(panel, 12)
+        }
+    }
+
+    private fun rounded(color: Int, radius: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(radius).toFloat()
+        }
+    }
+
+    private fun space(height: Int): View {
+        return View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                1,
+                dp(height)
+            )
+        }
+    }
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
 
     override fun onDestroy() {
+        handler.removeCallbacks(progressRunnable)
         player?.release()
         player = null
         super.onDestroy()
