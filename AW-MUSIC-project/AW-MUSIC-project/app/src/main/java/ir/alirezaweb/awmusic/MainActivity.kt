@@ -42,7 +42,7 @@ class MainActivity : Activity() {
   scroll.addView(body)
   body.addView(TextView(this).apply { text="AW MUSIC"; textSize=29f; setTextColor(cyan); typeface=Typeface.DEFAULT_BOLD; gravity=Gravity.CENTER; letterSpacing=.12f })
   body.addView(TextView(this).apply { text="ALIREZA WEB  •  OFFLINE PLAYER"; textSize=10f; setTextColor(muted); gravity=Gravity.CENTER; setPadding(0,5,0,18) })
-  val search = EditText(this).apply { hint="جست‌وجوی آهنگ یا خواننده"; setTextColor(pale); setHintTextColor(muted); singleLine=true; setPadding(14,8,14,8); setBackgroundColor(panel) }
+  val search = EditText(this).apply { hint="جست‌وجوی آهنگ یا خواننده"; setTextColor(pale); setHintTextColor(muted); issingleLine=true; setPadding(14,8,14,8); setBackgroundColor(panel) }
   body.addView(search, LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(14) })
   count = TextView(this).apply { text="آهنگ‌های دستگاه"; textSize=15f; setTextColor(pale); typeface=Typeface.DEFAULT_BOLD; setPadding(2,4,2,10) }
   body.addView(count)
