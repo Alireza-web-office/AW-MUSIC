@@ -33,15 +33,16 @@ jobs:
 
       - name: Select Version 2 Project
         run: |
-          DIR="AW-MUSIC-v2"
+          DIR="AW-MUSIC-v2/AW-MUSIC-v2"
 
           if [ ! -f "$DIR/settings.gradle.kts" ]; then
             echo "Version 2 project not found"
+            find AW-MUSIC-v2 -name settings.gradle.kts
             exit 1
           fi
 
           echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
-          echo "Building AW MUSIC Version 2"
+          echo "Building: $DIR"
 
       - name: Build APK
         run: gradle -p "$PROJECT_DIR" assembleDebug
@@ -50,5 +51,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AW-MUSIC-V2-APK
-          path: AW-MUSIC-v2/app/build/outputs/apk/debug/*.apk
+          path: AW-MUSIC-v2/AW-MUSIC-v2/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
