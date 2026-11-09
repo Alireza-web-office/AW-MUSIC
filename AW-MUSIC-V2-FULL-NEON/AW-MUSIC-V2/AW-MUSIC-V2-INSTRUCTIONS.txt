@@ -1,0 +1,19 @@
+AW MUSIC V2 - Upload guide
+
+1. Extract this ZIP.
+2. Upload the AW-MUSIC-V2 folder to the root of your existing GitHub repository.
+3. Upload the included .github/workflows/android.yml into the repository's .github/workflows/ folder.
+4. Commit changes, then open Actions and run "AW MUSIC V2 Android Build".
+5. Download artifact "AW-MUSIC-V2-APK".
+
+Included in this build:
+- Animated RGB AW MUSIC header
+- Custom neon AW launcher icon (vector)
+- Dark neon cards and album artwork read from Android MediaStore
+- Local music library, title/artist/album search
+- Play, pause, next, previous, seek, shuffle and repeat
+- Favorites and recently played saved on device
+- Persian/English toggle saved on device
+- About ALIREZA WEB page
+
+Known limitation: playback currently runs inside the activity, so Android may stop it when the app is closed or reclaimed. A dedicated foreground media service with lock-screen/notification controls is not included in this package yet. Run the GitHub Actions build to check compilation before installing.
