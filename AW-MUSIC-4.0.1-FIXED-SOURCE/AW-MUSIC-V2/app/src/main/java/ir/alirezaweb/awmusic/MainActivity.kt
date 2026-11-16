@@ -50,7 +50,7 @@ class MainActivity : Activity() {
     private var playbackSpeed = 1.0f
     private var playerPrepared = false
     private val lyricsByTrack = mutableMapOf<Long, String>()
-    private var current = -1
+    private var currentTrackId: Long? = null
     private var shuffle = false
     // 0 = off, 1 = repeat all, 2 = repeat one
     private var repeatMode = 0
@@ -82,7 +82,6 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         playbackSpeed = prefs.getFloat("playback_speed", 1.0f)
         favorites.addAll(prefs.getStringSet("favorites", emptySet())!!.mapNotNull { it.toLongOrNull() })
-        // Lyrics are loaded lazily when a track is opened.
         recent.addAll(prefs.getString("recent", "")!!.split(",").mapNotNull { it.toLongOrNull() })
         prefs.getString("playlists", "")!!.split("\n").filter { it.contains("::") }.forEach { row ->
             val parts = row.split("::", limit = 2)
@@ -93,6 +92,7 @@ class MainActivity : Activity() {
         showLibrary()
         showSplash()
         requestAudioPermission()
+        startTicker()
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -319,7 +319,7 @@ class MainActivity : Activity() {
             }
         }.let { items ->
             when (filterMode) {
-                "recent" -> items.sortedBy { recent.indexOf(it.id) }
+                "recent" -> items.sortedByDescending { recent.indexOf(it.id) }
                 else -> when (sortMode) {
                     "artist" -> items.sortedBy { it.artist.lowercase(Locale.ROOT) }
                     "album" -> items.sortedBy { it.album.lowercase(Locale.ROOT) }
@@ -345,7 +345,7 @@ class MainActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(10), dp(9), dp(10), dp(9))
-                background = shape(Color.argb(225, 20, 29, 48), 3, if (track.id == currentId()) pink else Color.rgb(0, 190, 220))
+                background = shape(Color.argb(225, 20, 29, 48), 3, if (track.id == currentTrackId) pink else Color.rgb(0, 190, 220))
                 elevation = dp(3).toFloat()
             }
             val art = ImageView(this).apply {
@@ -375,7 +375,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun currentId(): Long? = if (current in tracks.indices) tracks[current].id else null
+    private fun currentTrack(): Track? = currentTrackId?.let { id -> tracks.find { it.id == id } }
 
     private fun loadArtwork(track: Track): Bitmap? {
         artworkCache.get(track.id)?.let { return it }
@@ -397,7 +397,7 @@ class MainActivity : Activity() {
         }
         val info = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setOnClickListener { if (current in tracks.indices) showPlayer() }
+            setOnClickListener { if (currentTrack() != null) showPlayer() }
         }
         miniTitle = label("آهنگی انتخاب نشده", 12f, Color.WHITE, true)
         miniArtist = label("ALIREZA WEB", 10f, Color.LTGRAY)
@@ -411,14 +411,14 @@ class MainActivity : Activity() {
     }
 
     private fun showPlayer() {
-        if (current !in tracks.indices) {
+        val track = currentTrack()
+        if (track == null) {
             toast("اول یک آهنگ انتخاب کن.")
             return
         }
         screen = "player"
         clearPage()
         header("در حال پخش", true)
-        val track = tracks[current]
         detailArt = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = shape(panel, 3, cyan)
@@ -447,7 +447,11 @@ class MainActivity : Activity() {
                 override fun onProgressChanged(s: SeekBar?, p: Int, from: Boolean) {}
                 override fun onStartTrackingTouch(s: SeekBar?) {}
                 override fun onStopTrackingTouch(s: SeekBar?) {
-                    player?.let { p -> if (playerPrepared && p.duration > 0) p.seekTo(p.duration * seek.progress / 1000) }
+                    player?.let { p ->
+                        if (playerPrepared && p.duration > 0) {
+                            p.seekTo((p.duration.toLong() * seek.progress / 1000L).toInt())
+                        }
+                    }
                 }
             })
         }
@@ -460,7 +464,7 @@ class MainActivity : Activity() {
         }
         controls.addView(actionButton("⤨", { toggleShuffle() }, if (shuffle) cyan else Color.DKGRAY), params(dp(52), dp(50)))
         controls.addView(actionButton("⏮", { previousTrack() }, pink), LinearLayout.LayoutParams(dp(58), dp(54)).apply { marginStart = dp(8) })
-        detailPlay = actionButton(if (player?.isPlaying == true) "Ⅱ" else "▶", { togglePlay() }).apply { textSize = 22f }
+        detailPlay = actionButton(if (isPlayerPlaying()) "Ⅱ" else "▶", { togglePlay() }).apply { textSize = 22f }
         controls.addView(detailPlay, LinearLayout.LayoutParams(dp(68), dp(62)).apply { marginStart = dp(8) })
         controls.addView(actionButton("⏭", { nextTrack() }, pink), LinearLayout.LayoutParams(dp(58), dp(54)).apply { marginStart = dp(8) })
         controls.addView(actionButton(repeatIcon(), { cycleRepeat() }, if (repeatMode == 0) Color.DKGRAY else cyan), LinearLayout.LayoutParams(dp(52), dp(50)).apply { marginStart = dp(8) })
@@ -494,7 +498,7 @@ class MainActivity : Activity() {
     private fun toggleFavorite(track: Track) {
         if (!favorites.add(track.id)) favorites.remove(track.id)
         saveLibrary()
-        if (screen == "player" && currentId() == track.id && ::favoriteButton.isInitialized) {
+        if (screen == "player" && currentTrackId == track.id && ::favoriteButton.isInitialized) {
             favoriteButton.text = favoriteText(track)
         }
         if (screen == "library") renderTracks(searchBox.text.toString())
@@ -528,9 +532,31 @@ class MainActivity : Activity() {
 
     private fun attachAudioEffects(sessionId: Int) {
         releaseAudioEffects()
-        try { equalizer = Equalizer(0, sessionId).apply { enabled = true } } catch (_: Exception) {}
-        try { bassBoost = BassBoost(0, sessionId).apply { setStrength(500.toShort()); enabled = true } } catch (_: Exception) {}
-        try { virtualizer = Virtualizer(0, sessionId).apply { setStrength(350.toShort()); enabled = true } } catch (_: Exception) {}
+        try {
+            equalizer = Equalizer(0, sessionId).apply {
+                enabled = prefs.getBoolean("eq_enabled", true)
+                val bands = numberOfBands.toInt()
+                val range = bandLevelRange
+                for (band in 0 until bands) {
+                    val saved = prefs.getInt("eq_band_$band", Int.MIN_VALUE)
+                    if (saved != Int.MIN_VALUE) {
+                        setBandLevel(band.toShort(), saved.coerceIn(range[0].toInt(), range[1].toInt()).toShort())
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        try {
+            bassBoost = BassBoost(0, sessionId).apply {
+                setStrength(500.toShort())
+                enabled = prefs.getBoolean("bass_enabled", true)
+            }
+        } catch (_: Exception) {}
+        try {
+            virtualizer = Virtualizer(0, sessionId).apply {
+                setStrength(350.toShort())
+                enabled = prefs.getBoolean("virt_enabled", true)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun playTrack(track: Track, openDetails: Boolean = false) {
@@ -538,7 +564,7 @@ class MainActivity : Activity() {
             player?.setOnPreparedListener(null)
             player?.release()
             playerPrepared = false
-            current = tracks.indexOf(track)
+            currentTrackId = track.id
             val newPlayer = MediaPlayer()
             player = newPlayer
             newPlayer.setDataSource(this, track.uri)
@@ -556,7 +582,9 @@ class MainActivity : Activity() {
             }
             newPlayer.setOnCompletionListener {
                 when (repeatMode) {
-                    2 -> playTrack(track, screen == "player")
+                    2 -> {
+                        try { player?.seekTo(0); player?.start() } catch (_: Exception) {}
+                    }
                     else -> nextTrack()
                 }
             }
@@ -574,8 +602,7 @@ class MainActivity : Activity() {
     }
 
     private fun updatePlayerLabels() {
-        if (current !in tracks.indices) return
-        val track = tracks[current]
+        val track = currentTrack() ?: return
         if (::miniTitle.isInitialized) {
             miniTitle.text = track.title
             miniArtist.text = track.artist
@@ -606,22 +633,27 @@ class MainActivity : Activity() {
 
     private fun nextTrack() {
         if (tracks.isEmpty()) return
-        val currentTrackId = currentId()
         val queued = playQueue.mapNotNull { id -> tracks.find { it.id == id } }
         val queueIndex = queued.indexOfFirst { it.id == currentTrackId }
         val nextQueued = when {
             queued.isEmpty() -> null
-            shuffle && queued.size > 1 -> queued.filter { it.id != currentTrackId }.random()
+            shuffle && queued.size > 1 -> queued.filter { it.id != currentTrackId }.randomOrNull()
             queueIndex >= 0 && queueIndex + 1 < queued.size -> queued[queueIndex + 1]
             queueIndex < 0 -> queued.first()
             else -> null
         }
         if (nextQueued != null) { playTrack(nextQueued, screen == "player"); return }
+
+        val currentIndex = tracks.indexOfFirst { it.id == currentTrackId }
         val next = when {
-            shuffle && tracks.size > 1 -> tracks.indices.filter { it != current }.random()
-            current + 1 < tracks.size -> current + 1
+            shuffle && tracks.size > 1 -> tracks.indices.filter { it != currentIndex }.random()
+            currentIndex >= 0 && currentIndex + 1 < tracks.size -> currentIndex + 1
             repeatMode == 1 -> 0
-            else -> { player?.pause(); updatePlayerLabels(); return }
+            else -> {
+                try { player?.pause() } catch (_: Exception) {}
+                updatePlayerLabels()
+                return
+            }
         }
         playTrack(tracks[next], screen == "player")
     }
@@ -631,9 +663,14 @@ class MainActivity : Activity() {
         val p = player
         if (p != null && playerPrepared && p.currentPosition > 3000) { p.seekTo(0); return }
         val queued = playQueue.mapNotNull { id -> tracks.find { it.id == id } }
-        val queueIndex = queued.indexOfFirst { it.id == currentId() }
+        val queueIndex = queued.indexOfFirst { it.id == currentTrackId }
         if (queueIndex > 0) { playTrack(queued[queueIndex - 1], screen == "player"); return }
-        val previous = if (current > 0) current - 1 else if (repeatMode == 1) tracks.lastIndex else 0
+        val currentIndex = tracks.indexOfFirst { it.id == currentTrackId }
+        val previous = when {
+            currentIndex > 0 -> currentIndex - 1
+            repeatMode == 1 -> tracks.lastIndex
+            else -> 0
+        }
         playTrack(tracks[previous], screen == "player")
     }
 
@@ -751,9 +788,17 @@ class MainActivity : Activity() {
     private fun showAudioEffects() {
         val eq = equalizer
         if (eq == null) { toast("ابتدا یک آهنگ پخش کن تا افکت‌های صوتی فعال شوند."); return }
-        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
-        val enabled = CheckBox(this).apply { text = "فعال‌سازی اکولایزر"; setTextColor(Color.WHITE); isChecked = eq.enabled; setOnCheckedChangeListener { _, checked -> eq.enabled = checked } }
-        panel.addView(enabled)
+        val panelView = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
+        val enabled = CheckBox(this).apply {
+            text = "فعال‌سازی اکولایزر"
+            setTextColor(Color.WHITE)
+            isChecked = eq.enabled
+            setOnCheckedChangeListener { _, checked ->
+                eq.enabled = checked
+                prefs.edit().putBoolean("eq_enabled", checked).apply()
+            }
+        }
+        panelView.addView(enabled)
         val bands = try { eq.numberOfBands.toInt() } catch (_: Exception) { 0 }
         for (band in 0 until bands) {
             val range = eq.bandLevelRange
@@ -765,17 +810,43 @@ class MainActivity : Activity() {
                 progress = (eq.getBandLevel(band.toShort()) - range[0]).toInt()
                 progressTintList = android.content.res.ColorStateList.valueOf(cyan)
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { if (fromUser) try { eq.setBandLevel(band.toShort(), (progress + range[0]).toShort()) } catch (_: Exception) {} }
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        if (fromUser) try {
+                            val value = progress + range[0]
+                            eq.setBandLevel(band.toShort(), value.toShort())
+                            prefs.edit().putInt("eq_band_$band", value.toInt()).apply()
+                        } catch (_: Exception) {}
+                    }
                     override fun onStartTrackingTouch(seekBar: SeekBar?) {}
                     override fun onStopTrackingTouch(seekBar: SeekBar?) {}
                 })
             }
-            row.addView(bar); panel.addView(row)
+            row.addView(bar); panelView.addView(row)
         }
-        val bass = CheckBox(this).apply { text = "Bass Booster"; setTextColor(Color.WHITE); isChecked = bassBoost?.enabled == true; setOnCheckedChangeListener { _, checked -> try { bassBoost?.enabled = checked } catch (_: Exception) {} } }
-        val virtual = CheckBox(this).apply { text = "Virtualizer"; setTextColor(Color.WHITE); isChecked = virtualizer?.enabled == true; setOnCheckedChangeListener { _, checked -> try { virtualizer?.enabled = checked } catch (_: Exception) {} } }
-        panel.addView(bass); panel.addView(virtual)
-        android.app.AlertDialog.Builder(this).setTitle("تنظیمات صدا").setView(panel).setPositiveButton("تمام", null).show()
+        val bass = CheckBox(this).apply {
+            text = "Bass Booster"
+            setTextColor(Color.WHITE)
+            isChecked = bassBoost?.enabled == true
+            setOnCheckedChangeListener { _, checked ->
+                try {
+                    bassBoost?.enabled = checked
+                    prefs.edit().putBoolean("bass_enabled", checked).apply()
+                } catch (_: Exception) {}
+            }
+        }
+        val virtual = CheckBox(this).apply {
+            text = "Virtualizer"
+            setTextColor(Color.WHITE)
+            isChecked = virtualizer?.enabled == true
+            setOnCheckedChangeListener { _, checked ->
+                try {
+                    virtualizer?.enabled = checked
+                    prefs.edit().putBoolean("virt_enabled", checked).apply()
+                } catch (_: Exception) {}
+            }
+        }
+        panelView.addView(bass); panelView.addView(virtual)
+        android.app.AlertDialog.Builder(this).setTitle("تنظیمات صدا").setView(panelView).setPositiveButton("تمام", null).show()
     }
 
     private fun shareTrack(track: Track) {
@@ -872,7 +943,11 @@ class MainActivity : Activity() {
             if (which == 0) {
                 val input = EditText(this).apply { setText(name); setTextColor(Color.WHITE) }
                 android.app.AlertDialog.Builder(this).setTitle("تغییر نام").setView(input).setPositiveButton("ذخیره") { _, _ ->
-                    val newName = input.text.toString().trim(); if (newName.isNotBlank() && (newName == name || !playlists.containsKey(newName))) { playlists[newName] = playlists.remove(name) ?: mutableListOf(); saveLibrary(); showPlaylists() }
+                    val newName = input.text.toString().trim()
+                    if (newName.isNotBlank() && (newName == name || !playlists.containsKey(newName))) {
+                        playlists[newName] = playlists.remove(name) ?: mutableListOf()
+                        saveLibrary(); showPlaylists()
+                    }
                 }.setNegativeButton("لغو", null).show()
             } else android.app.AlertDialog.Builder(this).setMessage("این پلی‌لیست حذف شود؟").setPositiveButton("حذف") { _, _ -> playlists.remove(name); saveLibrary(); showPlaylists() }.setNegativeButton("لغو", null).show()
         }.show()
@@ -921,7 +996,7 @@ class MainActivity : Activity() {
         aboutCard.addView(label("طراحی و توسعه", 12f, cyan, true))
         aboutCard.addView(label("علیرضا مزارعی", 16f, Color.WHITE, true).apply { setPadding(0, dp(4), 0, dp(14)) })
         aboutCard.addView(label("نسخه برنامه", 11f, cyan, true))
-        aboutCard.addView(label("AW MUSIC 4.0 • ULTIMATE", 13f, Color.WHITE).apply { setPadding(0, dp(4), 0, dp(14)) })
+        aboutCard.addView(label("AW MUSIC 4.1 • ULTIMATE", 13f, Color.WHITE).apply { setPadding(0, dp(4), 0, dp(14)) })
         aboutCard.addView(actionButton("وب‌سایت رسمی  •  alireza-mazarei.ir", {
             openExternal("https://alireza-mazarei.ir/")
         }), params(-1, dp(48), 9))
