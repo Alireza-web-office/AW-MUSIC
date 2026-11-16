@@ -34,24 +34,31 @@ jobs:
 
       - name: Select AW MUSIC 4.0.1 Project
         run: |
-          DIR="AW-MUSIC-V2"
+          DIR="AW-MUSIC-4.0.1-IMPROVED-SOURCE/AW-MUSIC-V2"
 
           if [ ! -f "$DIR/settings.gradle.kts" ]; then
-            echo "AW MUSIC 4.0.1 project not found"
+            echo "Project not found!"
             find . -name settings.gradle.kts
             exit 1
           fi
 
           echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
 
-      - name: Build AW MUSIC 4.0.1
-        run: gradle -p "$PROJECT_DIR" clean assembleDebug
-
-      - name: Rename APK
+      - name: Build APK
         run: |
+          gradle -p "$PROJECT_DIR" clean assembleDebug
+
+      - name: Verify APK
+        run: |
+          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "APK not found!"
+            exit 1
+          fi
+
           mkdir -p release
-          cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" \
-             release/AW-MUSIC-4.0.1.apk
+          cp "$APK" release/AW-MUSIC-4.0.1.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
