@@ -1,0 +1,12 @@
+AW MUSIC 4.0 — Upload guide
+
+1. Upload the contents of this ZIP to the ROOT of the existing AW-MUSIC GitHub repository.
+2. Ensure the repository root contains AW-MUSIC-V2/ and .github/workflows/android.yml.
+3. Replace the existing AW-MUSIC-V2 project files when GitHub asks.
+4. Commit changes to main. GitHub Actions will build the APK.
+5. Open Actions → AW MUSIC 4.0 Android Build → download AW-MUSIC-4.0-APK.
+6. Extract app-debug.apk and install it on Android.
+
+AW MUSIC 4.0 additions: persistent local playlists (create, rename, delete, add/remove tracks, play/shuffle), editable play queue (enqueue/remove/clear/play), track action menu, track information, audio sharing, sorting by title/artist/album/newest, and sleep timer. Existing favorites, recents, shuffle/repeat, artwork player, and AW neon styling are retained.
+
+Important: this project uses an Activity-owned MediaPlayer. This update does not yet implement a dedicated foreground media service, reliable playback after the Activity is killed, lock-screen media controls, a full audio effects engine/equalizer, or metadata writing to source audio files. GitHub Actions must complete successfully before installing.
